@@ -1,0 +1,17 @@
+notify:
+  - name: default
+    platform: group
+    services:
+    - service: << default_notifier >>
+
+  - name: critical
+    platform: group
+    services:
+    - service: << default_notifier >>
+      data:
+        data:
+          push:
+            sound:
+              name: "Update.caf"
+              critical: 1
+              volume: 1.0
