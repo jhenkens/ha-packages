@@ -1,0 +1,155 @@
+# Create door mapping: door_name -> entity_id
+<% set door_entity_map = {} -%>
+<% for door in doors -%>
+<% set _ = door_entity_map.update({door: 'binary_sensor.' + door + sensor_suffix}) -%>
+<% endfor -%>
+
+<% set all_doors = (ha_entities.items() | list | 
+    selectattr('0', 'startswith', 'binary_sensor.') |
+    selectattr('1.attributes.device_class', 'defined') |
+    selectattr('1.attributes.device_class', 'equalto', 'door') |
+    list) -%>
+# Door Entity Mapping:
+<% for door_name, entity_id in door_entity_map.items() -%>
+# << door_name >>: << entity_id >>
+<% endfor -%>
+# All Doors:
+<% for door in all_doors -%>
+# << door[0] >>
+<% endfor -%>
+
+template:
+  - sensor:
+      - name: Doors Open Count
+        unique_id: jhenkens_doors_open_count_sensor
+        state: >
+          {{ states.binary_sensor
+          | selectattr('entity_id','in', << door_entity_map.values() | list >>)
+          | selectattr('state','match', 'on')
+          | list | count }}
+        state_class: measurement
+      - name: Doors Open Count for Alarm
+        unique_id: jhenkens_doors_open_for_alarm_count_sensor
+        state: >
+          {{ states.alert_script
+          | selectattr('entity_id', 'match', '^alert_script.door_open_alert_.*')
+          | selectattr('state','match', 'on')
+          | list | count }}
+  - binary_sensor:
+      - name: Doors Open
+        unique_id: jhenkens_doors_open_binary_sensor
+        state: >
+          {{ states('sensor.doors_open_count') | int(0) > 0 }}
+      - name: Doors Open Alarm Should Fire
+        unique_id: jhenkens_doors_open_should_fire_binary_sensor
+        state: >
+          {{ states('sensor.doors_open_count_for_alarm') | int(0) > 0 }}
+
+alert_script:
+<% for door, door_entity in door_entity_map.items() %>
+  door_open_alert_<< door >>:
+    name: << door.split('_') | map('capitalize') | join(' ') >> Open
+    entity_id: << door_entity >>
+    unique_id: jhenkens_door_open_alert_<< door >>
+    state: "on"
+    can_acknowledge: true
+    repeat: 999
+<% endfor %>
+
+  doors_open:
+    name: Doors Open Alert
+    entity_id: binary_sensor.doors_open_alarm_should_fire
+    unique_id: jhenkens_door_open_alert
+    state: "on"
+    repeat: 10
+    can_acknowledge: true
+    skip_first: true
+    script: notify_doors_open
+
+script:
+  notify_doors_open:
+    alias: "Doors Open Alert Notifier"
+    icon: "mdi:door-open"
+    description: "Sends a notification for open doors"
+    sequence:
+      - variables:
+          tag: >-
+            {{ state_attr("zone.home", "friendly_name") | lower | replace(" ","_") }}_doors_open
+          subtitle: >-
+            {% if states('sensor.doors_open_count_for_alarm') | int(0) > 0 %}
+            {{ states('sensor.doors_open_count_for_alarm') }} doors have been left open!
+            {% endif %}
+          message: >-
+            {% set entities = states.alert_script
+            | selectattr('state','match', 'on')
+            | selectattr('entity_id', 'match', '^alert_script.door_open_alert_.*')
+            | list | map(attribute='name') | map('replace', " Door Open", "") | join(", ") %}
+            Please check {{ entities }}.
+          single_door_open_name: >-
+            {% if is_state('sensor.doors_open_count_for_alarm', '1') %}
+            {% set entities = states.alert_script
+            | selectattr('state','match', 'on')
+            | selectattr('entity_id', 'match', '^alert_script.door_open_alert_.*')
+            | list | map(attribute='name') | map('replace', " Door Open", "") | first %}
+            {{ entities }}
+            {% endif %}
+          done_message: >-
+            {% if states('sensor.doors_open_count') | int(0) == 0 %}
+            All doors have been closed
+            {% else %}
+            All doors have been ignored, but {{ states('sensor.doors_open_count') }} doors are still open.
+            {% endif %}
+      - choose:
+          - conditions:
+              - alias: "Alert is done"
+                condition: template
+                value_template: "{{ event == 'done' }}"
+            sequence:
+              - action: notify.default
+                data:
+                  title: >-
+                    {{state_attr("zone.home", "friendly_name")}}
+                  message: "{{ done_message }}"
+                  data:
+                    tag: "{{ tag }}"
+                    subtitle: "{{ subtitle }}"
+          - conditions:
+              - alias: "Only one door"
+                condition: state
+                entity_id: sensor.doors_open_count_for_alarm
+                state: "1"
+            sequence:
+              - action: notify.default
+                data:
+                  title: >-
+                    {{state_attr("zone.home", "friendly_name")}}
+                  message: "{{ message }}"
+                  data:
+                    tag: "{{ tag }}"
+                    subtitle: "{{ subtitle }}"
+                    actions:
+                      - action: SILENCE_DOORS_OPEN
+                        title: Silence all doors
+                        destructive: true
+                      - action: SILENCE_DOORS_OPEN_SINGLE
+                        title: "Silence {{ single_door_open_name }}"
+                        destructive: true
+                      - action: "URI"
+                        title: "Open Door Alerts"
+                        uri: "/lovelace/security"
+        default:
+          - action: notify.default
+            data:
+              title: >-
+                {{state_attr("zone.home", "friendly_name")}}
+              message: "{{ message }}"
+              data:
+                tag: "{{ tag }}"
+                subtitle: "{{ subtitle }}"
+                actions:
+                  - action: SILENCE_DOORS_OPEN
+                    title: Silence all doors
+                    destructive: true
+                  - action: "URI"
+                    title: "Open Door Alerts"
+                    uri: "/lovelace/security"

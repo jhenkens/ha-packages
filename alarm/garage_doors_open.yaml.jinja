@@ -1,0 +1,59 @@
+<% set all_doors = (ha_entities.items() | list | 
+    selectattr('0', 'startswith', 'cover.') |
+    selectattr('1.attributes.device_class', 'defined') |
+    selectattr('1.attributes.device_class', 'equalto', 'garage') |
+    list) -%>
+# All Garage Doors:
+<% for door in all_doors -%>
+# << door[0] >>
+<% endfor -%>
+template:
+  - sensor:
+      - name: Garage Doors Open Count
+        unique_id: jhenkens_garage_doors_open_count_sensor
+        state: >
+          {{ states.cover
+          | selectattr('entity_id', 'in', << all_doors | map('first') | list >>)
+          | selectattr('state','match', 'open')
+          | list | count }}
+        state_class: measurement
+  - binary_sensor:
+      - name: Garage Doors Open
+        unique_id: jhenkens_garage_doors_open_sensor
+        state: >
+          {{ states('sensor.garage_doors_open_count') | int(0) > 0 }}
+
+alert_script:
+  garage_doors_open:
+    name: Garage Doors Open Alert
+    done_message: All garage doors have been closed
+    entity_id: binary_sensor.garage_doors_open
+    unique_id: jhenkens_garage_doors_open_alert
+    state: "on"
+    repeat: 10
+    can_acknowledge: true
+    skip_first: true
+    message: >
+      {% set entities = states.cover
+        | selectattr('entity_id', 'in', << all_doors | map('first') | list >>)
+        | selectattr('state','match', 'open')
+        | list | map(attribute='name') | map('replace', " Sensor", "") | join(", ") %}
+        Please check {{ entities }}.
+    notifiers:
+      - default
+    data:
+      subtitle: >-
+        {% if states('sensor.garage_doors_open_count') | int(0) > 0 %}
+        {{ states('sensor.garage_doors_open_count') }} garage doors have been left open!
+        {% endif %}
+      tag: >-
+        {{state_attr("zone.home", "friendly_name") | lower | replace(" ","_")}}_garage_doors_open
+      actions:
+        - action: SILENCE_GARAGE_DOORS_OPEN
+          title: Silence
+          destructive: true
+        - action: "URI"
+          title: "Open Door Alerts"
+          uri: "/lovelace/security"
+        - action: CLOSE_GARAGE_DOORS
+          title: "Close Garage Doors"

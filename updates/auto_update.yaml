@@ -1,0 +1,96 @@
+template:
+  - sensor:
+      - name: Updates Available Count
+        unique_id: auto_update_updates_available_count_s
+        state: >
+          {{
+            (
+              (states.update
+              | selectattr('attributes.skipped_version',"defined")
+              | rejectattr('attributes.skipped_version',"eq", None)
+              | list)
+              +
+              (states.update
+              | selectattr('state',"eq", "on")
+              | list)
+            ) | map(attribute="entity_id") | unique | list | count
+          }}
+        state_class: measurement
+  - binary_sensor:
+      - name: Updates Available
+        unique_id: auto_update_updates_available_bs
+        state: >
+          {{ states('sensor.updates_available_count') | int(0) > 0 }}
+  - trigger:
+      - platform: event
+        event_type: set_variable
+      - platform: event
+        event_type: remove_variable
+    sensor:
+      - unique_id: 4a4c8e53-9e68-4198-9cc5-b336e228ea4d
+        name: Variables
+        state: Variables
+        attributes:
+          variables: >
+            {% set current = this.attributes.get('variables', {}) %}
+            {% if trigger.event.event_type == 'set_variable' %}
+              {% set new = {trigger.event.data.key: trigger.event.data.value} %}
+              {{ dict(current, **new) }}
+            {% elif trigger.event.event_type == 'remove_variable' %}
+              {{ dict(current.items() | rejectattr('0', 'eq', trigger.event.data.key)) }}
+            {% endif %}
+
+script:
+  unskip_all_updates:
+    sequence:
+      - variables:
+          hidden_updates: >
+            {{
+              states.update
+              | selectattr('attributes.skipped_version',"defined")
+              | rejectattr('attributes.skipped_version',"eq", None)
+              | map(attribute="entity_id") | list
+            }}
+      - repeat:
+          for_each: "{{ hidden_updates }}"
+          sequence:
+            - alias: Remove from variable dict
+              event: remove_variable
+              event_data:
+                key: _ahu.{{ repeat.item }}
+            - alias: Clear update skip
+              service: update.clear_skipped
+              target:
+                entity_id: "{{ repeat.item }}"
+
+input_text:
+  last_boot_ha_version:
+    name: Last Boot HA Version
+    max: 255
+
+automation:
+  - id: notify_after_update
+    alias: johhen - Notify After Update
+    description: ""
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - if:
+          - "{{ as_timestamp(now()) - as_timestamp(states.sensor.uptime.state) < 180 }}"
+        then:
+          - delay:
+              minutes: 3
+      - condition: "{{ states('sensor.current_version') != states('input_text.last_boot_ha_version') }}"
+      - service: notify.default
+        data:
+          title: >-
+            {{state_attr("zone.home", "friendly_name")}}
+          message: >-
+            {{state_attr("zone.home", "friendly_name")}} has been updated from {{ states('input_text.last_boot_ha_version') }} to {{ states('sensor.current_version') }}
+      - service: input_text.set_value
+        data:
+          value: "{{states('sensor.current_version')}}"
+        target:
+          entity_id: input_text.last_boot_ha_version
+    mode: single

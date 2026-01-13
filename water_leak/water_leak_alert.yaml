@@ -1,0 +1,88 @@
+template:
+  - sensor:
+      - name: Water Detected Count
+        unique_id: water_leak_water_detected_count_s
+        state: >
+          {{ states.binary_sensor
+          | rejectattr('attributes.device_class', 'undefined')
+          | selectattr('attributes.device_class', 'equalto', 'moisture')
+          | selectattr('state','match', 'on')
+          | list | count }}
+        state_class: measurement
+  - binary_sensor:
+      - name: Water Detected
+        unique_id: water_leak_water_detected_bs
+        state: >
+          {{ states('sensor.water_detected_count') | int(0) > 0 }}
+
+alert_script:
+  water_detected:
+    unique_id: water_detected_alert_script
+    name: Water Detected Alert
+    entity_id: binary_sensor.water_detected
+    state: "on"
+    repeat: 10
+    can_acknowledge: false
+    skip_first: false
+    script: notify_water_detected
+
+script:
+  notify_water_detected:
+    alias: "Water Detected Alert Notifier"
+    icon: "mdi:water-alert"
+    description: "Sends a notification for water leaks"
+    sequence:
+      - variables:
+          tag: >-
+            {{ state_attr("zone.home", "friendly_name") | lower | replace(" ","_") }}_water_detected
+          subtitle: >-
+            {% if states('sensor.water_detected_count') | int(0) > 0 %}
+            {{ states('sensor.water_detected_count') }} water detectors are firing!
+            {% endif %}
+          message: >-
+            {% set entities = states.binary_sensor
+            | rejectattr('attributes.device_class', 'undefined')
+            | selectattr('attributes.device_class', 'equalto', 'moisture')
+            | selectattr('state','match', 'on')
+            | list | map(attribute='name') | join(", ") %}
+            Please check {{ entities }}.
+          done_message: >-
+            All leaks have been resolved
+      - choose:
+          - conditions:
+              - alias: "Alert is done"
+                condition: template
+                value_template: "{{ event == 'done' }}"
+            sequence:
+              - action: notify.default
+                data:
+                  title: >-
+                    {{state_attr("zone.home", "friendly_name")}}
+                  message: "{{ done_message }}"
+                  data:
+                    tag: "{{ tag }}"
+                    subtitle: "{{ subtitle }}"
+        default:
+          - action: notify.default
+            data:
+              title: >-
+                {{state_attr("zone.home", "friendly_name")}}
+              message: "{{ message }}"
+              data:
+                push:
+                  sound:
+                    name: "default"
+                    critical: 1
+                    volume: 1.0
+                tag: "{{ tag }}"
+                subtitle: "{{ subtitle }}"
+                actions:
+                  - action: SILENCE_WATER_LEAKS
+                    title: Silence all leak detectors
+                    destructive: true
+                  - action: "URI"
+                    title: "Open Leak Alerts"
+                    uri: "/lovelace/security"
+          - action: switch.turn_off
+            target:
+              entity_id: switch.moen_flo_shutoff_valve
