@@ -21,24 +21,6 @@ template:
         unique_id: auto_update_updates_available_bs
         state: >
           {{ states('sensor.updates_available_count') | int(0) > 0 }}
-  - trigger:
-      - platform: event
-        event_type: set_variable
-      - platform: event
-        event_type: remove_variable
-    sensor:
-      - unique_id: 4a4c8e53-9e68-4198-9cc5-b336e228ea4d
-        name: Variables
-        state: Variables
-        attributes:
-          variables: >
-            {% set current = this.attributes.get('variables', {}) %}
-            {% if trigger.event.event_type == 'set_variable' %}
-              {% set new = {trigger.event.data.key: trigger.event.data.value} %}
-              {{ dict(current, **new) }}
-            {% elif trigger.event.event_type == 'remove_variable' %}
-              {{ dict(current.items() | rejectattr('0', 'eq', trigger.event.data.key)) }}
-            {% endif %}
 
 script:
   unskip_all_updates:
@@ -54,10 +36,6 @@ script:
       - repeat:
           for_each: "{{ hidden_updates }}"
           sequence:
-            - alias: Remove from variable dict
-              event: remove_variable
-              event_data:
-                key: _ahu.{{ repeat.item }}
             - alias: Clear update skip
               service: update.clear_skipped
               target:

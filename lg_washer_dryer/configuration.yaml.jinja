@@ -1,0 +1,41 @@
+<% if lg_washer_dryer_enabled | default(false) %>
+template:
+  - sensor:
+      - name: "Washer Door Lock"
+        state: "{{ state_attr('sensor.washer','door_lock') }}"
+  - sensor:
+      - name: "Washer Time Display"
+        state: >
+          {% if is_state('sensor.washer_run_state', '-') %}
+          {% elif is_state('sensor.washer_run_state', 'Standby') %}
+          -:--
+          {% else %}
+          {{ state_attr('sensor.washer', 'remain_time') }}
+          {% endif %}
+  - sensor:
+      - name: "Dryer Time Display"
+        state: >
+          {% if is_state('sensor.dryer_run_state', '-') %}
+          {% elif is_state('sensor.dryer_run_state', 'Standby') %}
+          -:--
+          {% else %}
+          {{ state_attr('sensor.dryer', 'remain_time') }}
+          {% endif %}
+  - sensor:
+      - name: "Blank Sensor"
+        state: ""
+alert:
+  washer_error:
+    name: Washer error
+    done_message: Washer is no longer in error
+    entity_id: binary_sensor.washer_error_state
+    state: "on"
+    repeat: 30
+    can_acknowledge: true
+    skip_first: false
+    message: "Error: {{ states('sensor.washer_error_message') }}"
+    notifiers:
+      - default
+    data:
+      subtitle: "LG Washer has an error"
+<% endif %>

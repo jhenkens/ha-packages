@@ -79,6 +79,12 @@ script:
                   - action: "URI"
                     title: "Open Leak Alerts"
                     uri: "/lovelace/security"
-          - action: switch.turn_off
+<% set moen_flo = (ha_entities.items() | list | 
+    selectattr('0', 'startswith', 'valve.') |
+    selectattr('0', 'contains', 'moen') |
+    first | default("") ) -%>
+<% if moen_flo %>
+          - action: valve.close_valve
             target:
-              entity_id: switch.moen_flo_shutoff_valve
+              entity_id: << moen_flo >>
+<% endif %>
