@@ -69,11 +69,7 @@ script:
                 {{state_attr("zone.home", "friendly_name")}}
               message: "{{ message }}"
               data:
-                push:
-                  sound:
-                    name: "default"
-                    critical: 1
-                    volume: 1.0
+                critical: true
                 tag: "{{ tag }}"
                 subtitle: "{{ subtitle }}"
                 actions:

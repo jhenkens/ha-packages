@@ -1,9 +1,7 @@
 notify:
   - name: default
     platform: group
-    services:
-    - service: << default_notifier >>
-
+    services: []
   - name: critical
     platform: group
     services:
@@ -15,3 +13,44 @@ notify:
               name: "Update.caf"
               critical: 1
               volume: 1.0
+automation:
+  id: default_notifier_automation
+  alias: Default Notifier
+  description: >-
+    Intercepts calls to the default notification group and reprocesses with
+    default settings. Sets title if not provided. Handles critical notifications
+    by converting critical flag to iOS critical alert format.
+  triggers:
+    - alias: Notification group called
+      variables:
+        data: "{{ trigger.event.data.service_data.data | default({}) }}"
+        title: "{{ trigger.event.data.service_data.title | default('Dutch Hill') }}"
+        message: "{{ trigger.event.data.service_data.message | default('') }}"
+        is_critical: "{{ trigger.event.data.service_data.data.get('critical', false) }}"
+      event_data:
+        domain: notify
+        service: default
+      event_type: call_service
+      trigger: event
+  actions:
+    - alias: Build notification data
+      variables:
+        notification_title: "{{ title }}"
+        notification_message: "{{ message }}"
+        notification_data: >-
+          {% if is_critical %}{{ dict(data.items() | rejectattr('0', 'eq',
+          'critical') | list, push={'sound': {'name': 'Update.caf', 'critical': 1,
+          'volume': 1.0}}) }}{% else %}{{ data }}{% endif %}
+    - alias: Send to each recipient
+      repeat:
+        for_each:
+          - << default_notifier >>
+        sequence:
+          - alias: Send notification
+            action: notify.{{ repeat.item }}
+            data:
+              title: "{{ notification_title }}"
+              message: "{{ notification_message }}"
+              data: "{{ notification_data }}"
+  max: 10
+  mode: queued
