@@ -18,7 +18,18 @@
 # << door[0] >>
 <% endfor -%>
 
+<% set all_garage_doors = (ha_entities.items() | list | 
+    selectattr('0', 'startswith', 'cover.') |
+    selectattr('1.attributes.device_class', 'defined') |
+    selectattr('1.attributes.device_class', 'equalto', 'garage') |
+    list) -%>
+# All Garage Doors:
+<% for garage_door in all_garage_doors -%>
+# << garage_door[0] >>
+<% endfor -%>
+<% if (all_doors | length) > 0 or (all_garage_doors | length) > 0 %>
 template:
+<% if (all_doors | length) > 0 %>
   - sensor:
       - name: Doors Open Count
         unique_id: jhenkens_doors_open_count_sensor
@@ -44,8 +55,26 @@ template:
         unique_id: jhenkens_doors_open_should_fire_binary_sensor
         state: >
           {{ states('sensor.doors_open_count_for_alarm') | int(0) > 0 }}
+<% endif %>
+<% if ((all_garage_doors | length) > 0) %>
+  - sensor:
+      - name: Garage Doors Open Count
+        unique_id: jhenkens_garage_doors_open_count_sensor
+        state: >
+          {{ states.cover
+          | selectattr('entity_id', 'in', << all_garage_doors | map('first') | list >>)
+          | selectattr('state','match', 'open')
+          | list | count }}
+        state_class: measurement
+  - binary_sensor:
+      - name: Garage Doors Open
+        unique_id: jhenkens_garage_doors_open_sensor
+        state: >
+          {{ states('sensor.garage_doors_open_count') | int(0) > 0 }}
+<% endif %>
 
 alert_script:
+<% if (all_doors | length) > 0 %>
 <% for door, door_entity in door_entity_map.items() %>
   door_open_alert_<< door >>:
     name: << door.split('_') | map('capitalize') | join(' ') >> Open
@@ -65,6 +94,42 @@ alert_script:
     can_acknowledge: true
     skip_first: true
     script: notify_doors_open
+<% endif %>
+<% if ((all_garage_doors | length) > 0) %>
+  garage_doors_open:
+    name: Garage Doors Open Alert
+    done_message: All garage doors have been closed
+    entity_id: binary_sensor.garage_doors_open
+    unique_id: jhenkens_garage_doors_open_alert
+    state: "on"
+    repeat: 10
+    can_acknowledge: true
+    skip_first: true
+    message: >
+      {% set entities = states.cover
+        | selectattr('entity_id', 'in', << all_garage_doors | map('first') | list >>)
+        | selectattr('state','match', 'open')
+        | list | map(attribute='name') | map('replace', " Sensor", "") | join(", ") %}
+        Please check {{ entities }}.
+    notifiers:
+      - default
+    data:
+      subtitle: >-
+        {% if states('sensor.garage_doors_open_count') | int(0) > 0 %}
+        {{ states('sensor.garage_doors_open_count') }} garage doors have been left open!
+        {% endif %}
+      tag: >-
+        {{state_attr("zone.home", "friendly_name") | lower | replace(" ","_")}}_garage_doors_open
+      actions:
+        - action: SILENCE_GARAGE_DOORS_OPEN
+          title: Silence
+          destructive: true
+        - action: "URI"
+          title: "Open Door Alerts"
+          uri: "/lovelace/security"
+        - action: CLOSE_GARAGE_DOORS
+          title: "Close Garage Doors"
+<% endif %>
 
 script:
   notify_doors_open:
@@ -153,3 +218,4 @@ script:
                   - action: "URI"
                     title: "Open Door Alerts"
                     uri: "/lovelace/security"
+<% endif %>
