@@ -82,7 +82,7 @@ script:
 <% set moen_flo = (ha_entities.items() | list | 
     selectattr('0', 'startswith', 'valve.') |
     selectattr('0', 'contains', 'moen') |
-    first | default("") ) -%>
+    first | first | default("") ) -%>
 <% if moen_flo %>
           - action: valve.close_valve
             target:
