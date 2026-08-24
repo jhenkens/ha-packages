@@ -137,6 +137,7 @@ script:
     icon: "mdi:door-open"
     description: "Sends a notification for open doors"
     sequence:
+      - delay: "00:00:01"
       - variables:
           tag: >-
             {{ state_attr("zone.home", "friendly_name") | lower | replace(" ","_") }}_doors_open
